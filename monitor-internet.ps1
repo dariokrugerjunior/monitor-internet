@@ -29,8 +29,10 @@ param(
     [int]$IntervaloAlertaMin = 5,    # minutos mínimos entre alertas de instabilidade
     [int]$TesteVelocidadeMin = 30,   # de quanto em quanto tempo medir a velocidade máxima (0 = nunca)
     [int]$DuracaoMin = 0,            # 0 = roda para sempre
-    [ValidateSet('Capacidade', 'Uso', 'Ping')]
-    [string]$NumeroNoIcone = 'Capacidade',   # Capacidade = velocidade máxima | Uso = consumo agora | Ping
+    [ValidateSet('Auto', 'Capacidade', 'Uso', 'Ping')]
+    [string]$NumeroNoIcone = 'Auto',   # Auto = uso real quando você está usando, senão a velocidade máxima
+                                       # Capacidade = sempre a velocidade máxima | Uso = sempre o consumo | Ping
+    [double]$LimiteUso = 1,            # Mbps a partir dos quais o modo Auto passa a mostrar o uso
     [switch]$TestarNotificacao
 )
 
@@ -78,11 +80,12 @@ $cores = @{
 $iconeAtual = @{ Chave = ''; Handle = [IntPtr]::Zero }
 
 # Desenha o ícone: quadrado colorido com o texto no meio
-function Set-IconeStatus([string]$Texto, [string]$Cor, [string]$Dica) {
+# Com -Uso, desenha uma faixa embaixo para indicar que o número é o consumo atual
+function Set-IconeStatus([string]$Texto, [string]$Cor, [string]$Dica, [switch]$Uso) {
     if ($Dica.Length -gt 63) { $Dica = $Dica.Substring(0, 63) }   # limite do Windows
     $icone.Text = $Dica
 
-    $chave = "$Texto|$Cor"
+    $chave = "$Texto|$Cor|$Uso"
     if ($chave -eq $iconeAtual.Chave) { return }
 
     $bmp = New-Object System.Drawing.Bitmap 32, 32
@@ -99,7 +102,12 @@ function Set-IconeStatus([string]$Texto, [string]$Cor, [string]$Dica) {
     $fmt = New-Object System.Drawing.StringFormat
     $fmt.Alignment = [System.Drawing.StringAlignment]::Center
     $fmt.LineAlignment = [System.Drawing.StringAlignment]::Center
-    $g.DrawString($Texto, $fonte, $pincel, (New-Object System.Drawing.RectangleF(-2, 1, 36, 32)), $fmt)
+    if ($Uso) {
+        $g.DrawString($Texto, $fonte, $pincel, (New-Object System.Drawing.RectangleF(-2, -2, 36, 30)), $fmt)
+        $g.FillRectangle($pincel, 4, 27, 24, 4)
+    } else {
+        $g.DrawString($Texto, $fonte, $pincel, (New-Object System.Drawing.RectangleF(-2, 1, 36, 32)), $fmt)
+    }
 
     $h = $bmp.GetHicon()
     $icone.Icon = [System.Drawing.Icon]::FromHandle($h)
@@ -220,6 +228,7 @@ $bytesAnt = Get-BytesRede
 $tAnt = Get-Date
 $down = 0.0; $up = 0.0
 $capDown = $null; $capUp = $null; $horaCap = $null
+$ultimoUso = $null
 $proximoTeste = if ($TesteVelocidadeMin -gt 0) { (Get-Date).AddSeconds(10) } else { [datetime]::MaxValue }
 $n = 0
 
@@ -359,13 +368,17 @@ try {
             $cor = if ($perda -gt 10 -or $media -gt 2 * $LimiteLatencia -or $jitter -gt 2 * $LimiteJitter -or $muitoLenta) { 'Vermelho' }
                    elseif ($motivos.Count -gt 0 -or $lenta) { 'Amarelo' }
                    else { 'Verde' }
-            $numero = switch ($NumeroNoIcone) {
-                'Ping'       { [string][math]::Min($ms, 999) }
-                'Uso'        { Format-Icone $down }
-                default      { if ($null -ne $capDown) { Format-Icone $capDown } else { '...' } }
-            }
+            # Modo Auto: mostra o uso quando passa do limite e só volta para a
+            # velocidade máxima depois de 5 s sem uso (evita ficar piscando)
+            if ($down -ge $LimiteUso -or $up -ge $LimiteUso) { $ultimoUso = Get-Date }
+            $usando = $null -ne $ultimoUso -and ((Get-Date) - $ultimoUso).TotalSeconds -lt 5
+            $mostrarUso = $NumeroNoIcone -eq 'Uso' -or ($NumeroNoIcone -eq 'Auto' -and ($usando -or $null -eq $capDown))
+            $numero = if ($NumeroNoIcone -eq 'Ping') { [string][math]::Min($ms, 999) }
+                      elseif ($mostrarUso) { Format-Icone $down }
+                      elseif ($null -ne $capDown) { Format-Icone $capDown }
+                      else { '...' }
             $linhaPing = 'Ping {0}ms jit {1:N0}ms perda {2:N0}%' -f $ms, $jitter, $perda
-            Set-IconeStatus $numero $cor "$linhaVel`n$linhaPing"
+            Set-IconeStatus $numero $cor "$linhaVel`n$linhaPing" -Uso:$mostrarUso
         }
 
         if ($n % 10 -eq 0) {

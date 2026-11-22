@@ -2,8 +2,10 @@
 
 Scripts em PowerShell para Windows que acompanham a qualidade da internet, pensados para videochamadas.
 
-- **Ícone perto do relógio** com a velocidade máxima (Mbps), colorido pela qualidade da conexão:
+- **Ícone perto do relógio** com Mbps, colorido pela qualidade da conexão:
   🟢 boa · 🟡 instável ou lenta · 🔴 ruim · **X** sem internet
+  - parado: mostra a **velocidade máxima** da internet (ex.: `212`)
+  - em uso (vídeo, download, chamada): mostra o **uso real** com uma **faixa embaixo** do número (ex.: `2,5` sublinhado)
 - **Notificações** quando a internet cai, volta, fica instável ou lenta
 - **Diagnóstico da queda**: indica se o problema parece estar no Wi-Fi/roteador ou na operadora
 - **Histórico** em CSV (ping a cada segundo e testes de velocidade), útil para reclamar com a operadora
@@ -60,7 +62,8 @@ powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\MonitorInternet\moni
 
 | Parâmetro | Padrão | Descrição |
 |---|---|---|
-| `-NumeroNoIcone` | `Capacidade` | `Capacidade` (velocidade máxima), `Uso` (consumo agora) ou `Ping` |
+| `-NumeroNoIcone` | `Auto` | `Auto` (uso real quando você está usando, senão a velocidade máxima), `Capacidade` (sempre a velocidade máxima), `Uso` (sempre o consumo) ou `Ping` |
+| `-LimiteUso` | `1` | Mbps a partir dos quais o modo `Auto` mostra o uso real |
 | `-TesteVelocidadeMin` | `30` | Minutos entre testes de velocidade (`0` desliga) |
 | `-LimiteVelocidade` | `10` | Mbps de download abaixo dos quais a internet é considerada lenta |
 | `-LimiteLatencia` | `150` | Ping (ms) acima do qual a conexão é considerada instável |
